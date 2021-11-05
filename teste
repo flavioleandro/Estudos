@@ -1,0 +1,643 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Metadata:
+    Generator: "console-recorder"
+Description: "Criação de CodePipeline"
+
+############## Parameters Aplicação ##############
+Parameters:
+  ApplicationName:
+    Type: String
+    Default: zeus-staging
+
+############## Roles Aplicação ##############
+  # codepipeline9087fbaRoleArn:
+  #   Type: String
+  #   Default: arn:aws:iam::265455541035:role/service-role/AWSCodePipelineServiceRole-sa-east-1-zeus-staging
+
+  # RoleArn: !Ref codepipeline9087fbaRoleArn 
+
+
+Resources: 
+    codepipeline9087fba:
+        Type: "AWS::CodePipeline::Pipeline"
+        Properties:
+            ArtifactStore: 
+                Location: "codepipeline-sa-east-1-427700484405"
+                Type: "S3"
+            RoleArn: "arn:aws:iam::265455541035:role/service-role/AWSCodePipelineServiceRole-sa-east-1-zeus-staging"
+            Name: !Ref ApplicationName
+            Stages: 
+              - 
+                Name: "Source"
+                Actions: 
+                  - 
+                    Name: "Source"
+                    ActionTypeId: 
+                        Category: "Source"
+                        Owner: "AWS"
+                        Provider: "S3"
+                        Version: "1"
+                    Configuration: 
+                        PollForSourceChanges: "false"
+                        S3Bucket: "justcodepipeline"
+                        S3ObjectKey: "PEBV/zeus/staging.zip"
+                    Region: "sa-east-1"
+                    OutputArtifacts: 
+                      - 
+                        Name: "SourceArtifact"
+              - 
+                Name: "Build"
+                Actions: 
+                  - 
+                    Name: "Build"
+                    ActionTypeId: 
+                        Category: "Build"
+                        Owner: "AWS"
+                        Provider: "CodeBuild"
+                        Version: "1"
+                    Configuration: 
+                        ProjectName: !Ref ApplicationName
+                    Region: "sa-east-1"
+                    InputArtifacts: 
+                      - 
+                        Name: "SourceArtifact"
+                    OutputArtifacts: 
+                      - 
+                        Name: "BuildArtifact"
+              - 
+                Name: "Deploy"
+                Actions: 
+                  - 
+                    Name: "Deploy"
+                    ActionTypeId: 
+                        Category: "Deploy"
+                        Owner: "AWS"
+                        Provider: "ECS"
+                        Version: "1"
+                    Configuration: 
+                        ClusterName: "bv-cluster-staging"
+                        ServiceName: !Ref ApplicationName
+                    Region: "sa-east-1"
+                    InputArtifacts: 
+                      - 
+                        Name: "BuildArtifact"
+
+############## IAM ##############
+
+    iam00b99e8:
+        Type: "AWS::IAM::ManagedPolicy"
+        Properties:
+            ManagedPolicyName: "POLICY-SQS-ZEUS-POLLING"
+            PolicyDocument: 
+                Version: "2012-10-17"
+                Statement: 
+                  - 
+                    Sid: "Staging"
+                    Effect: "Allow"
+                    Action: 
+                      - "sqs:DeleteMessage"
+                      - "sqs:GetQueueUrl"
+                      - "sqs:ChangeMessageVisibility"
+                      - "sqs:SendMessageBatch"
+                      - "sqs:ReceiveMessage"
+                      - "sqs:SendMessage"
+                      - "sqs:GetQueueAttributes"
+                      - "sqs:ListQueueTags"
+                      - "sqs:ListDeadLetterSourceQueues"
+                      - "sqs:DeleteMessageBatch"
+                      - "sqs:PurgeQueue"
+                      - "sqs:DeleteQueue"
+                      - "sqs:CreateQueue"
+                      - "sqs:ChangeMessageVisibilityBatch"
+                      - "sqs:SetQueueAttributes"
+                    Resource: 
+                      - "arn:aws:sqs:sa-east-1:265455541035:request-export-proposal-documents-dlq-staging"
+                      - "arn:aws:sqs:sa-east-1:265455541035:request-export-proposal-documents-staging"
+                  - 
+                    Sid: "Extra"
+                    Effect: "Allow"
+                    Action: "sqs:ListQueues"
+                    Resource: "*"                    
+
+    iam7e77e4a:
+        Type: AWS::IAM::Role
+        Properties:
+            RoleName: "zeus-prod"
+            AssumeRolePolicyDocument: 
+                Version: "2012-10-17"
+                Statement: 
+                  - 
+                    Sid: ""
+                    Effect: "Allow"
+                    Principal: 
+                        Service: 
+                          - "ecs-tasks.amazonaws.com"
+                    Action: "sts:AssumeRole"
+
+############## Policys Aplicação ##############
+
+    AWSCodePipelineServiceRole-sa-east-1-zeus-staging:
+      Statement:
+        - Action:
+            - 'iam:PassRole'
+          Resource: '*'
+          Effect: Allow
+          Condition:
+            StringEqualsIfExists:
+              'iam:PassedToService':
+                - cloudformation.amazonaws.com
+                - elasticbeanstalk.amazonaws.com
+                - ec2.amazonaws.com
+                - ecs-tasks.amazonaws.com
+        - Action:
+            - 'codecommit:CancelUploadArchive'
+            - 'codecommit:GetBranch'
+            - 'codecommit:GetCommit'
+            - 'codecommit:GetRepository'
+            - 'codecommit:GetUploadArchiveStatus'
+            - 'codecommit:UploadArchive'
+          Resource: '*'
+          Effect: Allow
+        - Action:
+            - 'codedeploy:CreateDeployment'
+            - 'codedeploy:GetApplication'
+            - 'codedeploy:GetApplicationRevision'
+            - 'codedeploy:GetDeployment'
+            - 'codedeploy:GetDeploymentConfig'
+            - 'codedeploy:RegisterApplicationRevision'
+          Resource: '*'
+          Effect: Allow
+        - Action:
+            - 'codestar-connections:UseConnection'
+          Resource: '*'
+          Effect: Allow
+        - Action:
+            - 'elasticbeanstalk:*'
+            - 'ec2:*'
+            - 'elasticloadbalancing:*'
+            - 'autoscaling:*'
+            - 'cloudwatch:*'
+            - 's3:*'
+            - 'sns:*'
+            - 'cloudformation:*'
+            - 'rds:*'
+            - 'sqs:*'
+            - 'ecs:*'
+          Resource: '*'
+          Effect: Allow
+        - Action:
+            - 'lambda:InvokeFunction'
+            - 'lambda:ListFunctions'
+          Resource: '*'
+          Effect: Allow
+        - Action:
+            - 'opsworks:CreateDeployment'
+            - 'opsworks:DescribeApps'
+            - 'opsworks:DescribeCommands'
+            - 'opsworks:DescribeDeployments'
+            - 'opsworks:DescribeInstances'
+            - 'opsworks:DescribeStacks'
+            - 'opsworks:UpdateApp'
+            - 'opsworks:UpdateStack'
+          Resource: '*'
+          Effect: Allow
+        - Action:
+            - 'cloudformation:CreateStack'
+            - 'cloudformation:DeleteStack'
+            - 'cloudformation:DescribeStacks'
+            - 'cloudformation:UpdateStack'
+            - 'cloudformation:CreateChangeSet'
+            - 'cloudformation:DeleteChangeSet'
+            - 'cloudformation:DescribeChangeSet'
+            - 'cloudformation:ExecuteChangeSet'
+            - 'cloudformation:SetStackPolicy'
+            - 'cloudformation:ValidateTemplate'
+          Resource: '*'
+          Effect: Allow
+        - Action:
+            - 'codebuild:BatchGetBuilds'
+            - 'codebuild:StartBuild'
+            - 'codebuild:BatchGetBuildBatches'
+            - 'codebuild:StartBuildBatch'
+          Resource: '*'
+          Effect: Allow
+        - Effect: Allow
+          Action:
+            - 'devicefarm:ListProjects'
+            - 'devicefarm:ListDevicePools'
+            - 'devicefarm:GetRun'
+            - 'devicefarm:GetUpload'
+            - 'devicefarm:CreateUpload'
+            - 'devicefarm:ScheduleRun'
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - 'servicecatalog:ListProvisioningArtifacts'
+            - 'servicecatalog:CreateProvisioningArtifact'
+            - 'servicecatalog:DescribeProvisioningArtifact'
+            - 'servicecatalog:DeleteProvisioningArtifact'
+            - 'servicecatalog:UpdateProduct'
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - 'cloudformation:ValidateTemplate'
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - 'ecr:DescribeImages'
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - 'states:DescribeExecution'
+            - 'states:DescribeStateMachine'
+            - 'states:StartExecution'
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - 'appconfig:StartDeployment'
+            - 'appconfig:StopDeployment'
+            - 'appconfig:GetDeployment'
+          Resource: '*'
+      Version: '2012-10-17'
+
+    CodeBuildBasePolicy-zeus-staging_build-sa-east-1:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Resource:
+            - >-
+              arn:aws:logs:sa-east-1:265455541035:log-group:/aws/codebuild/zeus-staging_build
+            - >-
+              arn:aws:logs:sa-east-1:265455541035:log-group:/aws/codebuild/zeus-staging_build:*
+          Action:
+            - 'logs:CreateLogGroup'
+            - 'logs:CreateLogStream'
+            - 'logs:PutLogEvents'
+        - Effect: Allow
+          Resource:
+            - 'arn:aws:s3:::codepipeline-sa-east-1-*'
+          Action:
+            - 's3:PutObject'
+            - 's3:GetObject'
+            - 's3:GetObjectVersion'
+            - 's3:GetBucketAcl'
+            - 's3:GetBucketLocation'
+        - Effect: Allow
+          Action:
+            - 'codebuild:CreateReportGroup'
+            - 'codebuild:CreateReport'
+            - 'codebuild:UpdateReport'
+            - 'codebuild:BatchPutTestCases'
+            - 'codebuild:BatchPutCodeCoverages'
+          Resource:
+            - >-
+              arn:aws:codebuild:sa-east-1:265455541035:report-group/zeus-staging_build-*
+
+    CodeBuildBasePolicy-zeus-staging_docker-sa-east-1:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Resource:
+            - >-
+              arn:aws:logs:sa-east-1:265455541035:log-group:/aws/codebuild/zeus-staging_docker
+            - >-
+              arn:aws:logs:sa-east-1:265455541035:log-group:/aws/codebuild/zeus-staging_docker:*
+          Action:
+            - 'logs:CreateLogGroup'
+            - 'logs:CreateLogStream'
+            - 'logs:PutLogEvents'
+        - Effect: Allow
+          Resource:
+            - 'arn:aws:s3:::codepipeline-sa-east-1-*'
+          Action:
+            - 's3:PutObject'
+            - 's3:GetObject'
+            - 's3:GetObjectVersion'
+            - 's3:GetBucketAcl'
+            - 's3:GetBucketLocation'
+        - Effect: Allow
+          Action:
+            - 'codebuild:CreateReportGroup'
+            - 'codebuild:CreateReport'
+            - 'codebuild:UpdateReport'
+            - 'codebuild:BatchPutTestCases'
+            - 'codebuild:BatchPutCodeCoverages'
+          Resource:
+            - >-
+              arn:aws:codebuild:sa-east-1:265455541035:report-group/zeus-staging_docker-*
+
+    CodeBuildBasePolicy-zeus-staging_sonar-sa-east-1:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Resource:
+            - >-
+              arn:aws:logs:sa-east-1:265455541035:log-group:/aws/codebuild/zeus-staging_sonar
+            - >-
+              arn:aws:logs:sa-east-1:265455541035:log-group:/aws/codebuild/zeus-staging_sonar:*
+          Action:
+            - 'logs:CreateLogGroup'
+            - 'logs:CreateLogStream'
+            - 'logs:PutLogEvents'
+        - Effect: Allow
+          Resource:
+            - 'arn:aws:s3:::codepipeline-sa-east-1-*'
+          Action:
+            - 's3:PutObject'
+            - 's3:GetObject'
+            - 's3:GetObjectVersion'
+            - 's3:GetBucketAcl'
+            - 's3:GetBucketLocation'
+        - Effect: Allow
+          Action:
+            - 'codebuild:CreateReportGroup'
+            - 'codebuild:CreateReport'
+            - 'codebuild:UpdateReport'
+            - 'codebuild:BatchPutTestCases'
+            - 'codebuild:BatchPutCodeCoverages'
+          Resource:
+            - >-
+              arn:aws:codebuild:sa-east-1:265455541035:report-group/zeus-staging_sonar-*
+
+    CodeBuildBasePolicy-zeus-staging_veracode-sa-east-1:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Resource:
+            - >-
+              arn:aws:logs:sa-east-1:265455541035:log-group:/aws/codebuild/zeus-staging_veracode
+            - >-
+              arn:aws:logs:sa-east-1:265455541035:log-group:/aws/codebuild/zeus-staging_veracode:*
+          Action:
+            - 'logs:CreateLogGroup'
+            - 'logs:CreateLogStream'
+            - 'logs:PutLogEvents'
+        - Effect: Allow
+          Resource:
+            - 'arn:aws:s3:::codepipeline-sa-east-1-*'
+          Action:
+            - 's3:PutObject'
+            - 's3:GetObject'
+            - 's3:GetObjectVersion'
+            - 's3:GetBucketAcl'
+            - 's3:GetBucketLocation'
+        - Effect: Allow
+          Action:
+            - 'codebuild:CreateReportGroup'
+            - 'codebuild:CreateReport'
+            - 'codebuild:UpdateReport'
+            - 'codebuild:BatchPutTestCases'
+            - 'codebuild:BatchPutCodeCoverages'
+          Resource:
+            - >-
+              arn:aws:codebuild:sa-east-1:265455541035:report-group/zeus-staging_veracode-*
+
+    CodeBuildCloudWatchLogsPolicy-zeus-staging_build-sa-east-1:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Resource:
+            - 'arn:aws:logs:sa-east-1:265455541035:log-group:codebuild_logs'
+            - 'arn:aws:logs:sa-east-1:265455541035:log-group:codebuild_logs:*'
+          Action:
+            - 'logs:CreateLogGroup'
+            - 'logs:CreateLogStream'
+            - 'logs:PutLogEvents'
+
+    CodeBuildCloudWatchLogsPolicy-zeus-staging_docker-sa-east-1:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Resource:
+            - 'arn:aws:logs:sa-east-1:265455541035:log-group:codebuild_logs'
+            - 'arn:aws:logs:sa-east-1:265455541035:log-group:codebuild_logs:*'
+          Action:
+            - 'logs:CreateLogGroup'
+            - 'logs:CreateLogStream'
+            - 'logs:PutLogEvents'
+
+    CodeBuildCloudWatchLogsPolicy-zeus-staging_sonar-sa-east-1:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Resource:
+            - 'arn:aws:logs:sa-east-1:265455541035:log-group:codebuild_logs'
+            - 'arn:aws:logs:sa-east-1:265455541035:log-group:codebuild_logs:*'
+          Action:
+            - 'logs:CreateLogGroup'
+            - 'logs:CreateLogStream'
+            - 'logs:PutLogEvents'
+
+    CodeBuildCloudWatchLogsPolicy-zeus-staging_veracode-sa-east-1:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Resource:
+            - 'arn:aws:logs:sa-east-1:265455541035:log-group:codebuild_logs'
+            - 'arn:aws:logs:sa-east-1:265455541035:log-group:codebuild_logs:*'
+          Action:
+            - 'logs:CreateLogGroup'
+            - 'logs:CreateLogStream'
+            - 'logs:PutLogEvents'
+
+    CodeBuildVpcPolicy-zeus-staging_docker-sa-east-1:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Action:
+            - 'ec2:CreateNetworkInterface'
+            - 'ec2:DescribeDhcpOptions'
+            - 'ec2:DescribeNetworkInterfaces'
+            - 'ec2:DeleteNetworkInterface'
+            - 'ec2:DescribeSubnets'
+            - 'ec2:DescribeSecurityGroups'
+            - 'ec2:DescribeVpcs'
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - 'ec2:CreateNetworkInterfacePermission'
+          Resource: 'arn:aws:ec2:sa-east-1:265455541035:network-interface/*'
+          Condition:
+            StringEquals:
+              'ec2:Subnet':
+                - 'arn:aws:ec2:sa-east-1:265455541035:subnet/subnet-0113112af6c718f83'
+                - 'arn:aws:ec2:sa-east-1:265455541035:subnet/subnet-051c3a05f4f8771b8'
+              'ec2:AuthorizedService': codebuild.amazonaws.com
+
+    CodeBuildVpcPolicy-zeus-staging_sonar-sa-east-1:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Action:
+            - 'ec2:CreateNetworkInterface'
+            - 'ec2:DescribeDhcpOptions'
+            - 'ec2:DescribeNetworkInterfaces'
+            - 'ec2:DeleteNetworkInterface'
+            - 'ec2:DescribeSubnets'
+            - 'ec2:DescribeSecurityGroups'
+            - 'ec2:DescribeVpcs'
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - 'ec2:CreateNetworkInterfacePermission'
+          Resource: 'arn:aws:ec2:sa-east-1:265455541035:network-interface/*'
+          Condition:
+            StringEquals:
+              'ec2:Subnet':
+                - 'arn:aws:ec2:sa-east-1:265455541035:subnet/subnet-0113112af6c718f83'
+                - 'arn:aws:ec2:sa-east-1:265455541035:subnet/subnet-051c3a05f4f8771b8'
+              'ec2:AuthorizedService': codebuild.amazonaws.com
+
+    CodeBuildVpcPolicy-zeus-staging_veracode-sa-east-1:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Action:
+            - 'ec2:CreateNetworkInterface'
+            - 'ec2:DescribeDhcpOptions'
+            - 'ec2:DescribeNetworkInterfaces'
+            - 'ec2:DeleteNetworkInterface'
+            - 'ec2:DescribeSubnets'
+            - 'ec2:DescribeSecurityGroups'
+            - 'ec2:DescribeVpcs'
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - 'ec2:CreateNetworkInterfacePermission'
+          Resource: 'arn:aws:ec2:sa-east-1:265455541035:network-interface/*'
+          Condition:
+            StringEquals:
+              'ec2:Subnet':
+                - 'arn:aws:ec2:sa-east-1:265455541035:subnet/subnet-0113112af6c718f83'
+                - 'arn:aws:ec2:sa-east-1:265455541035:subnet/subnet-051c3a05f4f8771b8'
+              'ec2:AuthorizedService': codebuild.amazonaws.com
+
+    POLICY-SQS-ZEUS-POLLING:
+      Version: '2012-10-17'
+      Statement:
+        - Sid: Staging
+          Effect: Allow
+          Action:
+            - 'sqs:DeleteMessage'
+            - 'sqs:GetQueueUrl'
+            - 'sqs:ChangeMessageVisibility'
+            - 'sqs:SendMessageBatch'
+            - 'sqs:ReceiveMessage'
+            - 'sqs:SendMessage'
+            - 'sqs:GetQueueAttributes'
+            - 'sqs:ListQueueTags'
+            - 'sqs:ListDeadLetterSourceQueues'
+            - 'sqs:DeleteMessageBatch'
+            - 'sqs:PurgeQueue'
+            - 'sqs:DeleteQueue'
+            - 'sqs:CreateQueue'
+            - 'sqs:ChangeMessageVisibilityBatch'
+            - 'sqs:SetQueueAttributes'
+          Resource:
+            - >-
+              arn:aws:sqs:sa-east-1:265455541035:request-export-proposal-documents-dlq-staging
+            - >-
+              arn:aws:sqs:sa-east-1:265455541035:request-export-proposal-documents-staging
+        - Sid: Extra
+          Effect: Allow
+          Action: 'sqs:ListQueues'
+          Resource: '*'
+
+    start-pipeline-execution-sa-east-1-zeus-staging:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Action:
+            - 'codepipeline:StartPipelineExecution'
+          Resource:
+            - 'arn:aws:codepipeline:sa-east-1:265455541035:zeus-staging'
+
+############## CODEBUILD PROJECTS ##############
+
+    codebuildaa1a0b8:
+        Type: "AWS::CodeBuild::Project"
+        Properties:
+            TimeoutInMinutes: 60
+            Artifacts: 
+                type: "CODEPIPELINE"
+            Cache: 
+                type: "NO_CACHE"
+            Environment: 
+                computeType: "BUILD_GENERAL1_SMALL"
+                image: "aws/codebuild/amazonlinux2-x86_64-standard:3.0"
+                type: "LINUX_CONTAINER"
+                privilegedMode: true
+                imagePullCredentialsType: "CODEBUILD"
+            ServiceRole: "arn:aws:iam::265455541035:role/service-role/codebuild-zeus-staging_build-service-role"
+            Name: !Ref ApplicationName
+            Source: 
+                type: "CODEPIPELINE"
+                gitCloneDepth: 1
+                insecureSsl: false
+                buildspec: "../01/buildspec_build.yml"
+
+    codebuildc8377ad:
+        Type: "AWS::CodeBuild::Project"
+        Properties:
+            TimeoutInMinutes: 60
+            Artifacts: 
+                type: "CODEPIPELINE"
+            Cache: 
+                type: "NO_CACHE"
+            Environment: 
+                computeType: "BUILD_GENERAL1_SMALL"
+                image: "aws/codebuild/amazonlinux2-x86_64-standard:3.0"
+                type: "LINUX_CONTAINER"
+                privilegedMode: true
+                imagePullCredentialsType: "CODEBUILD"
+            ServiceRole: "arn:aws:iam::265455541035:role/service-role/codebuild-zeus-staging_sonar-service-role"
+            Name: !Sub ${ApplicationName}-sonar
+            Source: 
+                type: "CODEPIPELINE"
+                gitCloneDepth: 1
+                insecureSsl: false
+                buildspec: "../01/buildspec_sonar.yml"
+
+    codebuildefc7667:
+        Type: "AWS::CodeBuild::Project"
+        Properties:
+            TimeoutInMinutes: 60
+            Artifacts: 
+                type: "CODEPIPELINE"
+            Cache: 
+                type: "NO_CACHE"
+            Environment: 
+                computeType: "BUILD_GENERAL1_SMALL"
+                image: "aws/codebuild/amazonlinux2-x86_64-standard:3.0"
+                type: "LINUX_CONTAINER"
+                privilegedMode: true
+                imagePullCredentialsType: "CODEBUILD"
+            ServiceRole: "arn:aws:iam::265455541035:role/service-role/codebuild-zeus-staging_veracode-service-role"
+            Name: !Sub ${ApplicationName}-veracode"
+            Source: 
+                type: "CODEPIPELINE"
+                gitCloneDepth: 1
+                insecureSsl: false
+                buildspec: "../01/buildspec_veracode.yml"
+
+    codebuild3aed873:
+        Type: "AWS::CodeBuild::Project"
+        Properties:
+            TimeoutInMinutes: 60
+            Artifacts: 
+                type: "CODEPIPELINE"
+            Cache: 
+                type: "NO_CACHE"
+            Environment: 
+                computeType: "BUILD_GENERAL1_SMALL"
+                image: "aws/codebuild/amazonlinux2-x86_64-standard:3.0"
+                type: "LINUX_CONTAINER"
+                privilegedMode: true
+                imagePullCredentialsType: "CODEBUILD"
+            ServiceRole: "arn:aws:iam::265455541035:role/service-role/codebuild-zeus-staging_docker-service-role"
+            Name: !Sub ${ApplicationName}-docker
+            Source: 
+                type: "CODEPIPELINE"
+                gitCloneDepth: 1
+                insecureSsl: false
+                buildspec: "../01/buildspec_docker.yml"

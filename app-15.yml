@@ -1,0 +1,203 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Created CodePipeline
+Parameters:
+  ApplicationName:
+    Type: String
+    Default: appfelipe
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Entre com o ambiente dev ou prod
+Resources:
+ ###################### ROLE CODEPIPELINE ######################
+  iamcodepipeline:
+    Type: 'AWS::IAM::Role'
+    Description: Creating service role in IAM for AWS CodePipeline
+    Properties:
+      RoleName: !Sub '${ApplicationName}-codepipeline-role'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action: 'sts:AssumeRole'
+  iamcodepipelinepolicy:
+    Type: 'AWS::IAM::Policy'
+    DependsOn: iamcodepipeline
+    Description: Setting IAM policy for the service role for AWS CodePipeline
+    Properties:
+      PolicyName: iamcodepipelinepolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["s3:*"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["kms:GenerateDataKey*", "kms:Encrypt", "kms:Decrypt"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["sns:SendMessage"]
+            Resource: ["*"]
+      Roles: !Ref iamcodepipeline
+
+ ###################### ROLE CODEBUILD ######################
+  iamcodebuildbuild:
+    Type: 'AWS::IAM::Role'
+    Description: Creating service role in IAM for AWS CodeBuild
+    Properties:
+      RoleName: !Sub '${ApplicationName}-codebuild-role'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action: 'sts:AssumeRole'
+  iamcodebuildbuildpolicy:
+    Type: 'AWS::IAM::Policy'
+    DependsOn: iamcodebuildbuild
+    Description: Setting IAM policy for the service role for AWS CodeBuild
+    Properties:
+      PolicyName: iamcodebuildbuildpolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["s3:*"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["kms:GenerateDataKey*", "kms:Encrypt", "kms:Decrypt"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["sns:SendMessage"]
+            Resource: ["*"]
+      Roles: !Ref iamcodebuildbuild
+
+  loadbalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Name: !Sub '${ApplicationName}-${Environment}'
+      Scheme: internal
+      SecurityGroups:
+        - sg-0a9280af7649f4c2c
+      Subnets:
+        - subnet-0113112af6c718f83
+        - subnet-051c3a05f4f8771b8
+      Tags: []
+      IpAddressType: ipv4
+      Type: application
+
+  targetgroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckIntervalSeconds: 300
+      HealthCheckPath: /actuator/health
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 120
+      HealthyThresholdCount: 5
+      Matcher:
+        HttpCode: '200'
+      Name: !Sub '${ApplicationName}-${Environment}'
+      Port: 8080
+      Protocol: HTTP
+      TargetType: ip
+      UnhealthyThresholdCount: 2
+      VpcId: vpc-0a795a5ff369b07bb
+
+  ecr:
+    Type: 'AWS::ECR::Repository'
+    Properties:
+      RepositoryName: !Sub '${ApplicationName}-${Environment}'
+
+  codepipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    Properties:
+      ArtifactStore:
+        Location: codepipeline-sa-east-1-427700484405
+        Type: S3
+      RoleArn: !GetAtt 
+        - iamcodepipeline
+        - Arn
+      Name: !Sub '${ApplicationName}-${Environment}'
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: '1'
+              Configuration:
+                PollForSourceChanges: 'false'
+                S3Bucket: justcodepipeline
+                S3ObjectKey: PEBV/zeus/staging.zip
+              Region: !Sub '${AWS::Region}'
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Sub '${ApplicationName}-${Environment}'
+              Region: !Sub '${AWS::Region}'
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: '1'
+              Configuration:
+                ClusterName: bv-cluster-staging
+                ServiceName: !Sub '${ApplicationName}-${Environment}'
+              Region: !Sub '${AWS::Region}'
+              InputArtifacts:
+                - Name: BuildArtifact
+
+  codebuildbuild:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      TimeoutInMinutes: 60
+      Artifacts:
+        Type: CODEPIPELINE
+      Cache:
+        Type: NO_CACHE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:3.0'
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+        ImagePullCredentialsType: CODEBUILD
+      ServiceRole: !Ref iamcodebuildbuild
+      Name: !Sub '${ApplicationName}-${Environment}'
+      Source:
+        Type: CODEPIPELINE
+        GitCloneDepth: 1
+        InsecureSsl: false
+        BuildSpec: ../01/buildspec_build.yml

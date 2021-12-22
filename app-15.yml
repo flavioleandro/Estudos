@@ -3,7 +3,12 @@ Description: Created CodePipeline
 Parameters:
   ApplicationName:
     Type: String
-    Default: appfelipe
+    Default: teste123
+    MaxLength: 40
+  SiglaAppName:
+    Type: String
+    Default: PEBV
+    AllowedPattern: "[A-Z0-9]+"
   Environment:
     Type: String
     Default: dev
@@ -11,13 +16,182 @@ Parameters:
       - dev
       - prod
     Description: Entre com o ambiente dev ou prod
+    
+Conditions:
+  EnvProd: !Equals [!Ref Environment, "prod"]
+  
 Resources:
- ###################### ROLE CODEPIPELINE ######################
+########################## CODEPIPELINE #############################
+  codepipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    Properties:
+      ArtifactStore:
+        Location: codepipeline-sa-east-1-427700484405
+        Type: S3
+      RoleArn: !GetAtt 
+        - iamcodepipeline
+        - Arn
+      Name: !Sub '${ApplicationName}-${Environment}'
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: '1'
+              Configuration:
+                PollForSourceChanges: 'false'
+                S3Bucket: justcodepipeline
+                S3ObjectKey: !Join [ "", [ !Ref SiglaAppName, "/", !Ref ApplicationName, "/", !If [EnvProd, master.zip, staging.zip ] ] ]
+              Region: !Sub '${AWS::Region}'
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Name: Build
+          Actions:
+            - Name: Build
+              RunOrder: 1
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Sub '${ApplicationName}-${Environment}-build'
+              Region: !Sub '${AWS::Region}'
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+            - Name: Sonar
+              RunOrder: 2
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Sub '${ApplicationName}-${Environment}-sonar'
+              Region: !Sub '${AWS::Region}'
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: SonarArtifact
+            - Name: Veracode
+              RunOrder: 2
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Sub '${ApplicationName}-${Environment}-veracode'
+              Region: !Sub '${AWS::Region}'
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: VeracodeArtifact
+            - Name: Docker
+              RunOrder: 3
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Sub '${ApplicationName}-${Environment}-docker'
+              Region: !Sub '${AWS::Region}'
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: DockerArtifact
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: '1'
+              Configuration:
+                ClusterName: !Join [ "", [ "bv-cluster", !If [EnvProd, "", "-staging" ] ] ]
+                ServiceName: !Sub '${ApplicationName}-${Environment}'
+              Region: !Sub '${AWS::Region}'
+              InputArtifacts:
+                - Name: BuildArtifact
+
+########################## CODEBUILD ################################
+  codebuildbuild:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      TimeoutInMinutes: 60
+      Artifacts:
+        Type: CODEPIPELINE
+      Cache:
+        Type: NO_CACHE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:3.0'
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+        ImagePullCredentialsType: CODEBUILD
+      ServiceRole: !Ref iamcodebuildbuild
+      Name: !Sub '${ApplicationName}-${Environment}-build'
+      Source:
+        Type: CODEPIPELINE
+        GitCloneDepth: 1
+        InsecureSsl: false
+        BuildSpec: ../01/buildspec_build.yml
+  codebuildsonar:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      TimeoutInMinutes: 60
+      Artifacts:
+        Type: CODEPIPELINE
+      Cache:
+        Type: NO_CACHE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:3.0'
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+        ImagePullCredentialsType: CODEBUILD
+      ServiceRole: !Ref iamcodebuildsonar
+      Name: !Sub '${ApplicationName}-${Environment}-sonar'
+      Source:
+        Type: CODEPIPELINE
+        GitCloneDepth: 1
+        InsecureSsl: false
+        BuildSpec: ../01/buildspec_sonar.yml
+  codebuildveracode:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      TimeoutInMinutes: 60
+      Artifacts:
+        Type: CODEPIPELINE
+      Cache:
+        Type: NO_CACHE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:3.0'
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+        ImagePullCredentialsType: CODEBUILD
+      ServiceRole: !Ref iamcodebuildveracode
+      Name: !Sub '${ApplicationName}-${Environment}-veracode'
+      Source:
+        Type: CODEPIPELINE
+        GitCloneDepth: 1
+        InsecureSsl: false
+        BuildSpec: ../01/buildspec_veraacode.yml        
+
+###################### ROLE CODEPIPELINE ###########################
   iamcodepipeline:
     Type: 'AWS::IAM::Role'
     Description: Creating service role in IAM for AWS CodePipeline
     Properties:
-      RoleName: !Sub '${ApplicationName}-codepipeline-role'
+      RoleName: !Sub "${ApplicationName}-${Environment}-codepipeline"
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -25,7 +199,7 @@ Resources:
             Effect: Allow
             Principal:
               Service:
-                - codebuild.amazonaws.com
+                - codepipeline.amazonaws.com
             Action: 'sts:AssumeRole'
   iamcodepipelinepolicy:
     Type: 'AWS::IAM::Policy'
@@ -43,19 +217,23 @@ Resources:
             Action: ["s3:*"]
             Resource: ["*"]
           - Effect: Allow
+            Action: ["codebuild:*"]
+            Resource: ["*"]
+          - Effect: Allow
             Action: ["kms:GenerateDataKey*", "kms:Encrypt", "kms:Decrypt"]
             Resource: ["*"]
           - Effect: Allow
             Action: ["sns:SendMessage"]
             Resource: ["*"]
-      Roles: !Ref iamcodepipeline
+      Roles: 
+        - !Ref iamcodepipeline
 
- ###################### ROLE CODEBUILD ######################
+###################### ROLE CODEBUILD BUILD ########################
   iamcodebuildbuild:
     Type: 'AWS::IAM::Role'
     Description: Creating service role in IAM for AWS CodeBuild
     Properties:
-      RoleName: !Sub '${ApplicationName}-codebuild-role'
+      RoleName: !Sub "${ApplicationName}-${Environment}-cb-build"
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -86,8 +264,88 @@ Resources:
           - Effect: Allow
             Action: ["sns:SendMessage"]
             Resource: ["*"]
-      Roles: !Ref iamcodebuildbuild
+      Roles: 
+        - !Ref iamcodebuildbuild
 
+###################### ROLE CODEBUILD SONAR ########################
+  iamcodebuildsonar:
+    Type: 'AWS::IAM::Role'
+    Description: Creating service role in IAM for AWS CodeBuild
+    Properties:
+      RoleName: !Sub "${ApplicationName}-${Environment}-cb-sonar"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action: 'sts:AssumeRole'
+  iamcodebuildsonarpolicy:
+    Type: 'AWS::IAM::Policy'
+    DependsOn: iamcodebuildsonar
+    Description: Setting IAM policy for the service role for AWS CodeBuild
+    Properties:
+      PolicyName: iamcodebuildsonarpolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["s3:*"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["kms:GenerateDataKey*", "kms:Encrypt", "kms:Decrypt"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["sns:SendMessage"]
+            Resource: ["*"]
+      Roles: 
+        - !Ref iamcodebuildsonar
+
+###################### ROLE CODEBUILD VERACODE #####################
+  iamcodebuildveracode:
+    Type: 'AWS::IAM::Role'
+    Description: Creating service role in IAM for AWS CodeBuild
+    Properties:
+      RoleName: !Sub "${ApplicationName}-${Environment}-cb-veracode"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action: 'sts:AssumeRole'
+  iamcodebuildveracodepolicy:
+    Type: 'AWS::IAM::Policy'
+    DependsOn: iamcodebuildveracode
+    Description: Setting IAM policy for the service role for AWS CodeBuild
+    Properties:
+      PolicyName: iamcodebuildveracodepolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["s3:*"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["kms:GenerateDataKey*", "kms:Encrypt", "kms:Decrypt"]
+            Resource: ["*"]
+          - Effect: Allow
+            Action: ["sns:SendMessage"]
+            Resource: ["*"]
+      Roles: 
+        - !Ref iamcodebuildveracode
+
+###################### LOADBALANCER ################################
   loadbalancer:
     Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
     Properties:
@@ -101,7 +359,6 @@ Resources:
       Tags: []
       IpAddressType: ipv4
       Type: application
-
   targetgroup:
     Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
     Properties:
@@ -119,85 +376,8 @@ Resources:
       UnhealthyThresholdCount: 2
       VpcId: vpc-0a795a5ff369b07bb
 
+############################### ECR #################################
   ecr:
     Type: 'AWS::ECR::Repository'
     Properties:
       RepositoryName: !Sub '${ApplicationName}-${Environment}'
-
-  codepipeline:
-    Type: 'AWS::CodePipeline::Pipeline'
-    Properties:
-      ArtifactStore:
-        Location: codepipeline-sa-east-1-427700484405
-        Type: S3
-      RoleArn: !GetAtt 
-        - iamcodepipeline
-        - Arn
-      Name: !Sub '${ApplicationName}-${Environment}'
-      Stages:
-        - Name: Source
-          Actions:
-            - Name: Source
-              ActionTypeId:
-                Category: Source
-                Owner: AWS
-                Provider: S3
-                Version: '1'
-              Configuration:
-                PollForSourceChanges: 'false'
-                S3Bucket: justcodepipeline
-                S3ObjectKey: PEBV/zeus/staging.zip
-              Region: !Sub '${AWS::Region}'
-              OutputArtifacts:
-                - Name: SourceArtifact
-        - Name: Build
-          Actions:
-            - Name: Build
-              ActionTypeId:
-                Category: Build
-                Owner: AWS
-                Provider: CodeBuild
-                Version: '1'
-              Configuration:
-                ProjectName: !Sub '${ApplicationName}-${Environment}'
-              Region: !Sub '${AWS::Region}'
-              InputArtifacts:
-                - Name: SourceArtifact
-              OutputArtifacts:
-                - Name: BuildArtifact
-        - Name: Deploy
-          Actions:
-            - Name: Deploy
-              ActionTypeId:
-                Category: Deploy
-                Owner: AWS
-                Provider: ECS
-                Version: '1'
-              Configuration:
-                ClusterName: bv-cluster-staging
-                ServiceName: !Sub '${ApplicationName}-${Environment}'
-              Region: !Sub '${AWS::Region}'
-              InputArtifacts:
-                - Name: BuildArtifact
-
-  codebuildbuild:
-    Type: 'AWS::CodeBuild::Project'
-    Properties:
-      TimeoutInMinutes: 60
-      Artifacts:
-        Type: CODEPIPELINE
-      Cache:
-        Type: NO_CACHE
-      Environment:
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: 'aws/codebuild/amazonlinux2-x86_64-standard:3.0'
-        Type: LINUX_CONTAINER
-        PrivilegedMode: true
-        ImagePullCredentialsType: CODEBUILD
-      ServiceRole: !Ref iamcodebuildbuild
-      Name: !Sub '${ApplicationName}-${Environment}'
-      Source:
-        Type: CODEPIPELINE
-        GitCloneDepth: 1
-        InsecureSsl: false
-        BuildSpec: ../01/buildspec_build.yml

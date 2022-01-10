@@ -381,3 +381,4 @@ Resources:
     Type: 'AWS::ECR::Repository'
     Properties:
       RepositoryName: !Sub '${ApplicationName}-${Environment}'
+
